@@ -1,3 +1,43 @@
 spring:
   application:
     name: booking-service
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+  data:
+    jpa:
+      repository:
+        enabled: true
+  datasource:
+    url: jdbc:postgresql://${NEON_HOST}/${NEON_DB}?sslmode=require&channelBinding=require
+    username: ${NEON_USER}
+    password: ${NEON_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    jpa:
+      hibernate:
+        ddl-auto: update
+      show-sql: true
+      properties:
+        hibernate:
+          format_sql: true
+          use_sql_comments: true
+    cloud:
+      config:
+        enabled: false
+  server:
+    port: 8084
+  logging:
+    level:
+      org.springframework.theater-service: DEBUG
+  management:
+    server:
+      port: 9094
+    endpoints:
+      web:
+        exposure:
+          include: "*"
+    endpoint:
+      health:
+        show-details: always
+
+
