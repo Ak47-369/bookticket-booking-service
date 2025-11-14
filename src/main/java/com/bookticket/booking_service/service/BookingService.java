@@ -8,12 +8,12 @@ import com.bookticket.booking_service.dto.VerifySeatsRequest;
 import com.bookticket.booking_service.entity.Booking;
 import com.bookticket.booking_service.entity.BookingSeat;
 import com.bookticket.booking_service.enums.BookingStatus;
+import com.bookticket.booking_service.exception.SeatLockException;
 import com.bookticket.booking_service.repository.BookingRepository;
 import com.bookticket.booking_service.repository.BookingSeatRepository;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -26,50 +26,98 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final BookingSeatRepository bookingSeatRepository;
     private final RestClient theaterRestClient;
-    private final StringRedisTemplate redisTemplate;
+    private final RedisLockService redisLockService;
 
-    public BookingService(BookingRepository bookingRepository,
-                          BookingSeatRepository bookingSeatRepository,
+    public BookingService(BookingRepository bookingRepository, BookingSeatRepository bookingSeatRepository,
                           RestClient theaterRestClient,
-                          StringRedisTemplate redisTemplate) {
+                          RedisLockService redisLockService) {
         this.bookingRepository = bookingRepository;
         this.bookingSeatRepository = bookingSeatRepository;
         this.theaterRestClient = theaterRestClient;
-        this.redisTemplate = redisTemplate;
+        this.redisLockService = redisLockService;
     }
 
     @Transactional
     public BookingResponse createBooking(Long userId, CreateBookingRequest createBookingRequest) {
+        log.info("Creating booking for user {} with {} seats in show {}",
+                userId, createBookingRequest.seatIds().size(), createBookingRequest.showId());
+
+        // Verify seats with theater service
         log.info("Verifying Seats With Theater Service: {}", createBookingRequest.seatIds());
         List<ValidSeatResponse> validSeats = verifySeats(createBookingRequest);
-        // Create Booking Entity
-        log.info("Creating.... Booking For user Id: {}", userId);
+
+        // Create booking entity first (to get booking ID for lock value)
+        log.info("Creating booking entity for user {}", userId);
         Booking booking = new Booking();
         booking.setUserId(userId);
         booking.setShowId(createBookingRequest.showId());
         booking.setTotalAmount(calculateTotalAmount(validSeats)); // Source of Truth - Theater Service
         booking.setStatus(BookingStatus.PENDING);
         Booking createdBooking = bookingRepository.save(booking);
-        log.info("Created Booking: {}", createdBooking);
+        log.info("Created Booking with ID: {}", createdBooking.getId());
 
-        // Create Booking Seats
-        List<BookingSeat> bookingSeats = validSeats.stream()
-                .map(validSeat -> createBookingSeat(createdBooking, validSeat))
-                .toList();
-        List<BookingSeat> savedBookingSeats = bookingSeatRepository.saveAll(bookingSeats);
-        log.info("Created {} Booking Seats for Booking ID: {}", savedBookingSeats.size(), createdBooking.getId());
+        // Acquire Redis locks for all seats
+        List<String> acquiredLocks = null;
+        try {
+            List<Long> seatIds = validSeats.stream()
+                    .map(ValidSeatResponse::seatId)
+                    .toList();
 
-        // Map to BookingSeatResponse DTOs
-        List<BookingSeatResponse> seatResponses = mapToSeatResponses(savedBookingSeats, validSeats);
+            acquiredLocks = redisLockService.acquireSeatsLock(
+                    createBookingRequest.showId(),
+                    seatIds,
+                    createdBooking.getId()
+            );
+            log.info("Successfully acquired locks for {} seats", acquiredLocks.size());
 
-        return new BookingResponse(
-                createdBooking.getId(),
-                createdBooking.getUserId(),
-                createdBooking.getShowId(),
-                createdBooking.getTotalAmount(),
-                createdBooking.getStatus(),
-                seatResponses
-        );
+            // Create Booking Seats
+            List<BookingSeat> bookingSeats = validSeats.stream()
+                    .map(validSeat -> createBookingSeat(createdBooking, validSeat))
+                    .toList();
+            List<BookingSeat> savedBookingSeats = bookingSeatRepository.saveAll(bookingSeats);
+            log.info("Created {} Booking Seats for Booking ID: {}", savedBookingSeats.size(), createdBooking.getId());
+
+            // Map to BookingSeatResponse DTOs
+            List<BookingSeatResponse> seatResponses = mapToSeatResponses(savedBookingSeats, validSeats);
+
+            return new BookingResponse(
+                    createdBooking.getId(),
+                    createdBooking.getUserId(),
+                    createdBooking.getShowId(),
+                    createdBooking.getTotalAmount(),
+                    createdBooking.getStatus(),
+                    seatResponses
+            );
+
+        } catch (SeatLockException e) {
+            // Lock acquisition failed - mark booking as FAILED and rollback
+            log.error("Failed to acquire seat locks for booking {}: {}", createdBooking.getId(), e.getMessage());
+
+            // Update booking status to FAILED
+            createdBooking.setStatus(BookingStatus.FAILED);
+            bookingRepository.save(createdBooking);
+            log.info("Marked booking {} as FAILED due to lock acquisition failure", createdBooking.getId());
+
+            // Re-throw exception to return 409 Conflict to user
+            throw e;
+
+        } catch (Exception e) {
+            // Unexpected error - release locks and mark booking as FAILED
+            log.error("Unexpected error during booking creation for booking {}: {}",
+                    createdBooking.getId(), e.getMessage(), e);
+
+            // Release any acquired locks
+            if (acquiredLocks != null && !acquiredLocks.isEmpty()) {
+                redisLockService.releaseSeatsLock(acquiredLocks);
+            }
+
+            // Update booking status to FAILED
+            createdBooking.setStatus(BookingStatus.FAILED);
+            bookingRepository.save(createdBooking);
+            log.info("Marked booking {} as FAILED due to unexpected error", createdBooking.getId());
+
+            throw new RuntimeException("Failed to create booking due to system error", e);
+        }
     }
 
     private List<ValidSeatResponse> verifySeats(CreateBookingRequest createBookingRequest) {
