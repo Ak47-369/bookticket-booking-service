@@ -7,7 +7,11 @@ import lombok.Data;
 @Entity
 @Table(name = "bookings")
 @Data
-public class Booking extends AuditableEntity{
+public class Booking extends Auditable{
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "booking_id")
+    private Long id;
     @Column(nullable = false)
     private Long userId; // From X-User-Id header
     @Column(nullable = false)
