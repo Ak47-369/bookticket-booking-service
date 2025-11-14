@@ -65,3 +65,9 @@ booking:
       booking-prefix: "booking"
       max-retries: 0
       retry-delay-ms: 100
+# External Services Configuration
+services:
+  payment:
+    url: "lb://payment-service"
+  theater:
+    url: "lb://theater-service"
