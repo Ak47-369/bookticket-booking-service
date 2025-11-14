@@ -1,9 +1,15 @@
 package com.bookticket.booking_service.entity;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "booking_seats")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class BookingSeat extends Auditable{
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
