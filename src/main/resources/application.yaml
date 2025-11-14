@@ -21,23 +21,22 @@ spring:
         hibernate:
           format_sql: true
           use_sql_comments: true
-    cloud:
-      config:
-        enabled: false
+  cloud:
+    config:
+      enabled: false
+server:
+  port: 8084
+logging:
+  level:
+    org.springframework.theater-service: DEBUG
+management:
   server:
-    port: 8084
-  logging:
-    level:
-      org.springframework.theater-service: DEBUG
-  management:
-    server:
-      port: 9094
-    endpoints:
-      web:
-        exposure:
-          include: "*"
-    endpoint:
-      health:
-        show-details: always
-
+    port: 9094
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
 
