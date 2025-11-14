@@ -1,22 +1,31 @@
 package com.bookticket.booking_service.configuration;
 
+import com.bookticket.booking_service.security.UserPrincipal;
 import org.springframework.data.domain.AuditorAware;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.util.Objects;
 import java.util.Optional;
 
 @Component
 public class AuditorAwareImpl implements AuditorAware<String> {
     @Override
-    public Optional<String> getCurrentAuditor(){
-        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attributes == null) {
+    public Optional<String> getCurrentAuditor() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
             return Optional.of("system");
         }
-        String username = attributes.getRequest().getHeader("X-User-Name");
-        return Optional.of(Objects.requireNonNullElse(username, "system-default"));
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof UserPrincipal userPrincipal) {
+            return Optional.ofNullable(userPrincipal.getUsername())
+                    .filter(username -> !username.isBlank())
+                    .or(() -> Optional.of("user-" + userPrincipal.getUserId()));
+        }
+
+        return Optional.of("system-default");
     }
 }
