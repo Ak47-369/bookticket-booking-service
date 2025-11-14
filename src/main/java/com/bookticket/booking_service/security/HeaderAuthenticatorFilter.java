@@ -20,21 +20,35 @@ public class HeaderAuthenticatorFilter  extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String id = request.getHeader("X-User-Id");
-//       TODO String username = request.getHeader("X-User-Name");
+        // TODO - Add X-User-Name in API Gateway First
+//        String username = request.getHeader("X-User-Name");
         String roles = request.getHeader("X-User-Roles");
+        String username = "user"; // Hardcoding for now
 
-        if (id != null  && roles != null) {
-            List<SimpleGrantedAuthority> authorities = Arrays.stream(roles.split(","))
-                    .map(String::trim)
-                    .map(role ->new SimpleGrantedAuthority("ROLE_" + role))
-                    .toList();
+        if (id != null && username != null && roles != null) {
+            try {
+                Long userId = Long.parseLong(id);
 
-            // Create a new authentication object
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(id, null, authorities);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            log.info("Successfully authenticated user {} with roles {}", id, authorities);
+                List<SimpleGrantedAuthority> authorities = Arrays.stream(roles.split(","))
+                        .map(String::trim)
+                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                        .toList();
+
+                // Create UserPrincipal with userId and username
+                UserPrincipal userPrincipal = new UserPrincipal(userId, username);
+
+                // Create authentication object with UserPrincipal as principal
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(userPrincipal, null, authorities);
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                log.info("Successfully authenticated user {} (ID: {}) with roles {}", username, userId, authorities);
+            } catch (NumberFormatException e) {
+                log.error("Invalid X-User-Id format: {}. Must be a valid Long.", id);
+            }
         } else {
-            log.warn("HeaderAuthenticatorFilter - Missing headers. X-User-Id: {}, X-User-Roles: {}", id, roles);
+            log.warn("HeaderAuthenticatorFilter - Missing headers. X-User-Id: {}, X-User-Name: {}, X-User-Roles: {}",
+                    id, username, roles);
         }
         filterChain.doFilter(request, response);
     }
