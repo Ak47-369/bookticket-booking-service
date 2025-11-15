@@ -8,22 +8,43 @@ import org.springframework.web.client.RestClient;
 
 @Configuration
 public class AppConfig {
+
+    private final ServiceUrlProperties serviceUrlProperties;
+
+    public AppConfig(ServiceUrlProperties serviceUrlProperties) {
+        this.serviceUrlProperties = serviceUrlProperties;
+    }
+
     @Bean
     public HeaderPropagationInterceptor headerPropagationInterceptor() {
         return new HeaderPropagationInterceptor();
     }
 
-    @Bean("theaterApiClient")
+    /**
+     * Single load-balanced RestClient.Builder bean
+     * Shared by all service clients (theater, payment, etc.)
+     */
+    @Bean
     @LoadBalanced
-    public RestClient.Builder theaterRestClientBuilder() {
+    public RestClient.Builder loadBalancedRestClientBuilder() {
         return RestClient.builder();
     }
 
     @Bean
-    public RestClient theaterRestClient(RestClient.Builder theaterRestClientBuilder) {
-        return theaterRestClientBuilder
-                .baseUrl("lb://theater-service")
-                .requestInterceptor(headerPropagationInterceptor())
+    public RestClient theaterRestClient(RestClient.Builder loadBalancedRestClientBuilder,
+                                        HeaderPropagationInterceptor headerPropagationInterceptor) {
+        return loadBalancedRestClientBuilder
+                .baseUrl(serviceUrlProperties.getTheaterUrl())
+                .requestInterceptor(headerPropagationInterceptor)
+                .build();
+    }
+
+    @Bean
+    public RestClient paymentRestClient(RestClient.Builder loadBalancedRestClientBuilder,
+                                        HeaderPropagationInterceptor headerPropagationInterceptor) {
+        return loadBalancedRestClientBuilder
+                .baseUrl(serviceUrlProperties.getPaymentUrl())
+                .requestInterceptor(headerPropagationInterceptor)
                 .build();
     }
 }

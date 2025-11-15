@@ -4,11 +4,11 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-@ConfigurationProperties(prefix = "services")
+@ConfigurationProperties(prefix = "booking.payment.polling")
 @Data
-public class ServiceUrlProperties {
-    
-    private String theaterUrl;
-    private String paymentUrl;
+public class PaymentPollingProperties {
+    private int maxAttempts;
+    private long intervalMs;
+    private long timeoutMs;
 }
 

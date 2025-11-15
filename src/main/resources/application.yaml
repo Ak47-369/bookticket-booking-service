@@ -65,9 +65,12 @@ booking:
       booking-prefix: "booking"
       max-retries: 0
       retry-delay-ms: 100
-# External Services Configuration
-services:
   payment:
-    url: "lb://payment-service"
-  theater:
-    url: "lb://theater-service"
+    polling:
+      max-attempts: 15        # Maximum number of polling attempts
+      interval-ms: 2000       # Interval between polls (2 seconds)
+      timeout-ms: 300000       # Total timeout (5 minutes)
+
+services:
+  payment-url: "lb://payment-service"
+  theater-url: "lb://theater-service"
