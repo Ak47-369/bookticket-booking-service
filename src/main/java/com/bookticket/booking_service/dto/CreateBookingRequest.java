@@ -1,7 +1,5 @@
 package com.bookticket.booking_service.dto;
 
-
-import com.bookticket.booking_service.enums.PaymentMethod;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
