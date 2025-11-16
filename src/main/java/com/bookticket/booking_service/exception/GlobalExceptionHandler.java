@@ -20,17 +20,43 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SeatLockException.class)
     public ProblemDetail handleSeatLockException(SeatLockException ex) {
         log.error("Seat lock conflict: {}", ex.getMessage());
-        
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.CONFLICT,
                 ex.getMessage()
         );
-        
+
         problemDetail.setTitle("Seats No Longer Available");
         problemDetail.setType(URI.create("https://bookticket.com/errors/seat-lock-conflict"));
         problemDetail.setProperty("timestamp", Instant.now());
         problemDetail.setProperty("errorCode", "SEAT_LOCK_CONFLICT");
-        
+
+        return problemDetail;
+    }
+
+    /**
+     * Handle PaymentFailedException - returns 402 Payment Required
+     * Thrown when payment processing fails
+     */
+    @ExceptionHandler(PaymentFailedException.class)
+    public ProblemDetail handlePaymentFailedException(PaymentFailedException ex) {
+        log.error("Payment failed: {}", ex.getMessage());
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.PAYMENT_REQUIRED,
+                ex.getMessage()
+        );
+
+        problemDetail.setTitle("Payment Failed");
+        problemDetail.setType(URI.create("https://bookticket.com/errors/payment-failed"));
+        problemDetail.setProperty("timestamp", Instant.now());
+        problemDetail.setProperty("errorCode", "PAYMENT_FAILED");
+        problemDetail.setProperty("paymentStatus", ex.getPaymentStatus());
+
+        if (ex.getTransactionId() != null) {
+            problemDetail.setProperty("transactionId", ex.getTransactionId());
+        }
+
         return problemDetail;
     }
     
