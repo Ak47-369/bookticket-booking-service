@@ -21,6 +21,7 @@ logs/
 *.ipr
 *.env
 *.md
+*.log
 
 ### NetBeans ###
 /nbproject/private/
