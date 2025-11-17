@@ -18,6 +18,13 @@ public class BookingSeat extends Auditable{
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "booking_id", nullable = false)
     private Booking booking;
-    @Column(nullable = false)
+    @Column(name = "seat_id", nullable = false)
     private Long seatId;
+    // Denormalize for performance
+    @Column(name = "seat_number", nullable = false)
+    private String seatNumber;
+    @Column(name = "seat_type", nullable = false)
+    private String seatType;
+    @Column(name = "price", nullable = false)
+    private Double price; // Need to store this, what if the price changes, during booking
 }

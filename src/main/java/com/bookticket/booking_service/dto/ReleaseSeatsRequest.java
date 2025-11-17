@@ -1,4 +1,4 @@
-package com.bookticket.theater_service.dto;
+package com.bookticket.booking_service.dto;
 
 import java.util.List;
 

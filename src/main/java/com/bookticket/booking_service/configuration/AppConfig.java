@@ -30,21 +30,19 @@ public class AppConfig {
         return RestClient.builder();
     }
 
-    @Bean
-    public RestClient theaterRestClient(RestClient.Builder loadBalancedRestClientBuilder,
-                                        HeaderPropagationInterceptor headerPropagationInterceptor) {
+    @Bean("theaterRestClient")
+    public RestClient theaterRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
         return loadBalancedRestClientBuilder
                 .baseUrl(serviceUrlProperties.getTheaterUrl())
-                .requestInterceptor(headerPropagationInterceptor)
+                .requestInterceptor(headerPropagationInterceptor())
                 .build();
     }
 
-    @Bean
-    public RestClient paymentRestClient(RestClient.Builder loadBalancedRestClientBuilder,
-                                        HeaderPropagationInterceptor headerPropagationInterceptor) {
+    @Bean("paymentRestClient")
+    public RestClient paymentRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
         return loadBalancedRestClientBuilder
                 .baseUrl(serviceUrlProperties.getPaymentUrl())
-                .requestInterceptor(headerPropagationInterceptor)
+                .requestInterceptor(headerPropagationInterceptor())
                 .build();
     }
 }

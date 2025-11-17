@@ -4,7 +4,7 @@ import com.bookticket.booking_service.enums.BookingStatus;
 
 import java.util.List;
 
-public record BookedBookingResponse(
+public record BookingStatusResponse(
         Long bookingId,
         Long userId,
         Long showId,

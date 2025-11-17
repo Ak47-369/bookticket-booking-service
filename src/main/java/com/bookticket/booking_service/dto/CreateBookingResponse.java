@@ -5,7 +5,7 @@ import com.bookticket.booking_service.enums.BookingStatus;
 import java.util.List;
 
 
-public record BookingResponse(
+public record CreateBookingResponse(
         Long bookingId,
         Long userId,
         Long showId,
@@ -17,9 +17,9 @@ public record BookingResponse(
         Long paymentExpiresAt        // Unix timestamp when payment session expires
 ) {
     // Constructor for pending bookings with payment session
-    public BookingResponse(Long bookingId, Long userId, Long showId, double totalAmount,
-                          BookingStatus status, List<BookingSeatResponse> seats,
-                          String paymentSessionId, String paymentUrl, Long paymentExpiresAt) {
+    public CreateBookingResponse(Long bookingId, Long userId, Long showId, double totalAmount,
+                                 BookingStatus status, List<BookingSeatResponse> seats,
+                                 String paymentSessionId, String paymentUrl, Long paymentExpiresAt) {
         this.bookingId = bookingId;
         this.userId = userId;
         this.showId = showId;
@@ -32,8 +32,8 @@ public record BookingResponse(
     }
 
     // Constructor for completed/failed bookings without payment session
-    public BookingResponse(Long bookingId, Long userId, Long showId, double totalAmount,
-                          BookingStatus status, List<BookingSeatResponse> seats) {
+    public CreateBookingResponse(Long bookingId, Long userId, Long showId, double totalAmount,
+                                 BookingStatus status, List<BookingSeatResponse> seats) {
         this(bookingId, userId, showId, totalAmount, status, seats, null, null, null);
     }
 }
