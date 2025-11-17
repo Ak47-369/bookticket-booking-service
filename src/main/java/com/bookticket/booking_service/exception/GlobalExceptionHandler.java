@@ -72,7 +72,7 @@ public class GlobalExceptionHandler {
                 "An unexpected error occurred while processing your request"
         );
         
-        problemDetail.setTitle("Internal Server Error");
+        problemDetail.setTitle(ex.getMessage());
         problemDetail.setType(URI.create("https://bookticket.com/errors/internal-server-error"));
         problemDetail.setProperty("timestamp", Instant.now());
         problemDetail.setProperty("errorCode", "INTERNAL_SERVER_ERROR");
@@ -92,7 +92,7 @@ public class GlobalExceptionHandler {
                 "An unexpected error occurred while processing your request"
         );
         
-        problemDetail.setTitle("Internal Server Error");
+        problemDetail.setTitle(ex.getMessage());
         problemDetail.setType(URI.create("https://bookticket.com/errors/internal-server-error"));
         problemDetail.setProperty("timestamp", Instant.now());
         problemDetail.setProperty("errorCode", "INTERNAL_SERVER_ERROR");

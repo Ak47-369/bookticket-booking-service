@@ -225,9 +225,9 @@ public class BookingService {
                     .map(seat -> new BookingSeatResponse(
                             seat.getId(),
                             seat.getSeatId(),
-                            null,  // TODO Add Seat Details API Call
-                            null,
-                            null // TODO get Price from Seat Details API Call
+                            seat.getSeatNumber(),
+                            seat.getSeatType(),
+                            seat.getPrice()
                     ))
                     .toList();
 
@@ -310,14 +310,7 @@ public class BookingService {
                 );
             }
 
-//        } catch (PaymentFailedException e) {
-//            // Re-throw PaymentFailedException
-//            throw e;
-        } catch (Exception e) {
-            // Unexpected error during payment verification
-            log.error("Unexpected error during payment verification for booking {}: {}",
-                    bookingId, e.getMessage(), e);
-
+        } catch (PaymentFailedException e) {
             // Mark booking as FAILED and release locks
             booking.setStatus(BookingStatus.FAILED);
             bookingRepository.save(booking);
@@ -332,7 +325,13 @@ public class BookingService {
             redisLockService.releaseSeatsLockByIds(booking.getShowId(), seatIds);
             //Mark Seats as Available
             theaterService.releaseSeats(booking.getShowId(), seatIds);
-
+            // Re-throw PaymentFailedException
+            throw e;
+        }
+        catch (Exception e) {
+            // Unexpected error during payment verification
+            log.error("Unexpected error during payment verification for booking {}: {}",
+                    bookingId, e.getMessage(), e);
             throw new RuntimeException("Failed to verify payment: " + e.getMessage(), e);
         }
     }
