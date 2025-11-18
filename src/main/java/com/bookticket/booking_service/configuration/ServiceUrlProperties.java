@@ -10,5 +10,6 @@ public class ServiceUrlProperties {
     
     private String theaterUrl;
     private String paymentUrl;
+    private String notificationUrl;
 }
 

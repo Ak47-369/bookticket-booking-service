@@ -10,6 +10,7 @@ import com.bookticket.booking_service.repository.BookingRepository;
 import com.bookticket.booking_service.repository.BookingSeatRepository;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -22,16 +23,24 @@ public class BookingService {
     private final RedisLockService redisLockService;
     private final PaymentService paymentService;
     private final TheaterService theaterService;
+    private final KafkaTemplate<String, BookingSuccessEvent> kafkaSuccessTemplate;
+    private final KafkaTemplate<String, BookingFailedEvent> kafkaFailedTemplate;
+    private final NotificationService notificationService;
 
     public BookingService(BookingRepository bookingRepository,
                           BookingSeatRepository bookingSeatRepository,
                           RedisLockService redisLockService,
-                          PaymentService paymentService, TheaterService theaterService) {
+                          PaymentService paymentService, TheaterService theaterService,
+                          KafkaTemplate<String, BookingSuccessEvent> kafkaSuccessTemplate,
+                          KafkaTemplate<String, BookingFailedEvent> kafkaFailedTemplate, NotificationService notificationService) {
         this.bookingRepository = bookingRepository;
         this.bookingSeatRepository = bookingSeatRepository;
         this.redisLockService = redisLockService;
         this.paymentService = paymentService;
         this.theaterService = theaterService;
+        this.kafkaSuccessTemplate = kafkaSuccessTemplate;
+        this.kafkaFailedTemplate = kafkaFailedTemplate;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -123,6 +132,7 @@ public class BookingService {
                 redisLockService.releaseSeatsLock(acquiredLocks);
                 //Mark Seats as Available
                 theaterService.releaseSeats(createBookingRequest.showId(), seatIds);
+                sendBookingFailedEvent(createdBooking, "Failed to create payment session");
 
                 // Re-throw exception to return error to user
                 throw new RuntimeException("Failed to create payment session: " + e.getMessage(), e);
@@ -136,6 +146,7 @@ public class BookingService {
             createdBooking.setStatus(BookingStatus.FAILED);
             bookingRepository.save(createdBooking);
             log.info("Marked booking {} as FAILED due to lock acquisition failure", createdBooking.getId());
+            sendBookingFailedEvent(createdBooking, "Seats no longer available");
 
             // Re-throw exception to return 409 Conflict to user
             throw e;
@@ -155,6 +166,7 @@ public class BookingService {
             createdBooking.setStatus(BookingStatus.FAILED);
             bookingRepository.save(createdBooking);
             log.info("Marked booking {} as FAILED due to unexpected error", createdBooking.getId());
+            sendBookingFailedEvent(createdBooking, e.getMessage());
 
             throw new RuntimeException("Failed to create booking due to system error", e);
         }
@@ -213,14 +225,17 @@ public class BookingService {
         // Fetch booking
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found: " + bookingId));
+        List<BookingSeat> bookingSeats = bookingSeatRepository.findByBookingId(bookingId);
+        // Get seat IDs for lock release
+        List<Long> seatIds = bookingSeats.stream()
+                .map(BookingSeat::getSeatId)
+                .toList();
 
         // Check if booking is already processed
         if (booking.getStatus() != BookingStatus.PENDING) {
             log.warn("Booking {} is already in {} status. Skipping verification.",
                     bookingId, booking.getStatus());
 
-            // Fetch booking seats for response
-            List<BookingSeat> bookingSeats = bookingSeatRepository.findByBookingId(bookingId);
             List<BookingSeatResponse> seatResponses = bookingSeats.stream()
                     .map(seat -> new BookingSeatResponse(
                             seat.getId(),
@@ -249,26 +264,21 @@ public class BookingService {
             String paymentStatus = paymentResponse.paymentStatus();
             log.info("Payment status for booking {}: {}", bookingId, paymentStatus);
 
-            // Fetch booking seats for response
-            List<BookingSeat> bookingSeats = bookingSeatRepository.findByBookingId(bookingId);
-
-            // Get seat IDs for lock release
-            List<Long> seatIds = bookingSeats.stream()
-                    .map(BookingSeat::getSeatId)
-                    .toList();
-
             if ("COMPLETED".equalsIgnoreCase(paymentStatus)) {
                 // Payment successful - update booking to CONFIRMED and release locks
                 booking.setStatus(BookingStatus.CONFIRMED);
-                bookingRepository.save(booking);
+                Booking confirmedBooking = bookingRepository.save(booking);
                 log.info("Booking {} confirmed successfully", bookingId);
 
                 // Mark Seats as Booked
-                theaterService.bookSeats(booking.getShowId(), seatIds);
+                theaterService.bookSeats(confirmedBooking.getShowId(), seatIds);
 
                 // Release locks
                 log.info("Releasing seat locks for booking {} after successful payment", bookingId);
-                redisLockService.releaseSeatsLockByIds(booking.getShowId(), seatIds);
+                redisLockService.releaseSeatsLockByIds(confirmedBooking.getShowId(), seatIds);
+
+                //TODO Push to booking_success topic in Kafka
+                sendBookingSuccessEvent(confirmedBooking);
 
                 // Map to response
                 List<BookingSeatResponse> seatResponses = bookingSeats.stream()
@@ -282,25 +292,28 @@ public class BookingService {
                         .toList();
 
                 return new BookingStatusResponse(
-                        booking.getId(),
-                        booking.getUserId(),
-                        booking.getShowId(),
-                        booking.getTotalAmount(),
-                        booking.getStatus(),
+                        confirmedBooking.getId(),
+                        confirmedBooking.getUserId(),
+                        confirmedBooking.getShowId(),
+                        confirmedBooking.getTotalAmount(),
+                        confirmedBooking.getStatus(),
                         seatResponses
                 );
 
             } else {
                 // Payment failed - update booking to FAILED and release locks
                 booking.setStatus(BookingStatus.FAILED);
-                bookingRepository.save(booking);
+                Booking failedBooking = bookingRepository.save(booking);
                 log.warn("Booking {} marked as FAILED due to payment failure", bookingId);
 
                 // Release locks
                 log.info("Releasing seat locks for booking {} after payment failure", bookingId);
-                redisLockService.releaseSeatsLockByIds(booking.getShowId(), seatIds);
+                redisLockService.releaseSeatsLockByIds(failedBooking.getShowId(), seatIds);
                 //Mark Seats as Available
-                theaterService.releaseSeats(booking.getShowId(), seatIds);
+                theaterService.releaseSeats(failedBooking.getShowId(), seatIds);
+
+                // TODO - Send booking_failed event to kafka
+                sendBookingFailedEvent(failedBooking, paymentResponse.message());
 
                 throw new PaymentFailedException(
                         paymentResponse.message() != null ?
@@ -313,18 +326,15 @@ public class BookingService {
         } catch (PaymentFailedException e) {
             // Mark booking as FAILED and release locks
             booking.setStatus(BookingStatus.FAILED);
-            bookingRepository.save(booking);
-
-            // Release locks
-            List<BookingSeat> bookingSeats = bookingSeatRepository.findByBookingId(bookingId);
-            List<Long> seatIds = bookingSeats.stream()
-                    .map(BookingSeat::getSeatId)
-                    .toList();
+            Booking failedBooking = bookingRepository.save(booking);
 
             log.info("Releasing seat locks for booking {} after verification error", bookingId);
             redisLockService.releaseSeatsLockByIds(booking.getShowId(), seatIds);
             //Mark Seats as Available
             theaterService.releaseSeats(booking.getShowId(), seatIds);
+
+            // TODO - Send booking_failed event to kafka
+            sendBookingFailedEvent(failedBooking, e.getMessage());
             // Re-throw PaymentFailedException
             throw e;
         }
@@ -334,5 +344,64 @@ public class BookingService {
                     bookingId, e.getMessage(), e);
             throw new RuntimeException("Failed to verify payment: " + e.getMessage(), e);
         }
+    }
+
+    private void sendBookingSuccessEvent(Booking confirmedBooking) {
+        BookingSuccessEvent bookingSuccessEvent = new BookingSuccessEvent(
+                confirmedBooking.getId(),
+                confirmedBooking.getUserId(),
+                confirmedBooking.getShowId(),
+                confirmedBooking.getTotalAmount()
+        );
+        try{
+            kafkaSuccessTemplate.send("booking_success", bookingSuccessEvent);
+            log.info("Sent booking success event for booking {}", confirmedBooking.getId());
+        } catch (Exception e) {
+            log.error("Failed to send booking success event to Kafka for booking {}: {}", confirmedBooking.getId(), e.getMessage(), e);
+            log.info("[FallBack] : Sending booking success event to notification service through REST for booking {}", confirmedBooking.getId());
+            try {
+                notificationService.sendBookingSuccessEvent(bookingSuccessEvent);
+            } catch (Exception ex) {
+                log.error("Failed to send booking success event to notification service  for booking {}: {}", confirmedBooking.getId(), ex.getMessage(), ex);
+                throw new RuntimeException(ex);
+            }
+
+        }
+
+    }
+
+    private void sendBookingFailedEvent(Booking failedBooking, String reason) {
+        BookingFailedEvent bookingFailedEvent = new BookingFailedEvent(
+                failedBooking.getId(),
+                failedBooking.getUserId(),
+                failedBooking.getShowId(),
+                failedBooking.getTotalAmount(),
+                reason
+        );
+        try{
+            kafkaFailedTemplate.send("booking_failed", bookingFailedEvent);
+            log.info("Sent booking failed event for booking {}", failedBooking.getId());
+        } catch (Exception e) {
+            log.error("Failed to send booking failed event to Kafka for booking {}: {}", failedBooking.getId(), e.getMessage(), e);
+            log.info("[FallBack] : Sending booking failed event to notification service through REST for booking {}", failedBooking.getId());
+            try {
+                notificationService.sendBookingFailedEvent(bookingFailedEvent);
+            } catch (Exception ex) {
+                log.error("Failed to send booking failed event to notification service for booking {}: {}", failedBooking.getId(), ex.getMessage(), ex);
+                throw new RuntimeException(ex);
+            }
+        }
+    }
+
+    public List<SeatDetailsResponse> getSeatDetailsByBookingId(Long bookingId) {
+        List<BookingSeat> bookingSeats = bookingSeatRepository.findByBookingId(bookingId);
+        return bookingSeats.stream()
+                .map(bookingSeat -> new SeatDetailsResponse(
+                        bookingSeat.getSeatId(),
+                        bookingSeat.getSeatNumber(),
+                        bookingSeat.getSeatType(),
+                        bookingSeat.getPrice()
+                ))
+                .toList();
     }
 }

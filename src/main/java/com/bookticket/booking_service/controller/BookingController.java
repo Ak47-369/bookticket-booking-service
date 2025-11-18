@@ -3,6 +3,7 @@ package com.bookticket.booking_service.controller;
 import com.bookticket.booking_service.dto.BookingStatusResponse;
 import com.bookticket.booking_service.dto.CreateBookingResponse;
 import com.bookticket.booking_service.dto.CreateBookingRequest;
+import com.bookticket.booking_service.dto.SeatDetailsResponse;
 import com.bookticket.booking_service.security.UserPrincipal;
 import com.bookticket.booking_service.service.BookingService;
 import jakarta.validation.Valid;
@@ -12,6 +13,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/bookings")

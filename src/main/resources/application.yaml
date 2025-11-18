@@ -38,6 +38,20 @@ spring:
   security:
     filter:
       dispatcher-types: async, error, forward, include, request
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKER_ADDRESS}
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: PLAIN
+      sasl.jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username="${KAFKA_USERNAME}" password="${KAFKA_PASSWORD}";
+    producer:
+      retries: 3
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.trusted.packages: com.bookticket.booking_service.dto
+        session.timeout.ms: 30000
+        request.timeout.ms: 30000
 server:
   port: 8084
 logging:
@@ -74,3 +88,4 @@ booking:
 services:
   payment-url: "lb://payment-service"
   theater-url: "lb://theater-service"
+  notification-url: "lb://notification-service"

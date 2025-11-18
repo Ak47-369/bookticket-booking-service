@@ -45,4 +45,12 @@ public class AppConfig {
                 .requestInterceptor(headerPropagationInterceptor())
                 .build();
     }
+
+    @Bean("notificationRestClient")
+    public RestClient notificationRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
+        return loadBalancedRestClientBuilder
+                .baseUrl(serviceUrlProperties.getNotificationUrl())
+                .requestInterceptor(headerPropagationInterceptor())
+                .build();
+    }
 }
