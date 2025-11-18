@@ -52,4 +52,12 @@ public class BookingController {
         BookingStatusResponse response = bookingService.verifyAndCompleteBooking(bookingId, sessionId);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/{bookingId}/seats")
+    public ResponseEntity<List<SeatDetailsResponse>> getSeatDetails(
+            @PathVariable Long bookingId) {
+        log.info("Getting seat Details for booking {}", bookingId);
+        List<SeatDetailsResponse> seatDetails = bookingService.getSeatDetailsByBookingId(bookingId);
+        return ResponseEntity.ok(seatDetails);
+    }
 }
