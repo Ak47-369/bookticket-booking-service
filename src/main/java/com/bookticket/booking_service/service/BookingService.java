@@ -11,6 +11,10 @@ import com.bookticket.booking_service.repository.BookingSeatRepository;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -26,13 +30,16 @@ public class BookingService {
     private final KafkaTemplate<String, BookingSuccessEvent> kafkaSuccessTemplate;
     private final KafkaTemplate<String, BookingFailedEvent> kafkaFailedTemplate;
     private final NotificationService notificationService;
+    private final DeadLetterQueueService deadLetterQueueService;
 
     public BookingService(BookingRepository bookingRepository,
                           BookingSeatRepository bookingSeatRepository,
                           RedisLockService redisLockService,
                           PaymentService paymentService, TheaterService theaterService,
                           KafkaTemplate<String, BookingSuccessEvent> kafkaSuccessTemplate,
-                          KafkaTemplate<String, BookingFailedEvent> kafkaFailedTemplate, NotificationService notificationService) {
+                          KafkaTemplate<String, BookingFailedEvent> kafkaFailedTemplate,
+                          NotificationService notificationService,
+                          DeadLetterQueueService deadLetterQueueService) {
         this.bookingRepository = bookingRepository;
         this.bookingSeatRepository = bookingSeatRepository;
         this.redisLockService = redisLockService;
@@ -41,6 +48,7 @@ public class BookingService {
         this.kafkaSuccessTemplate = kafkaSuccessTemplate;
         this.kafkaFailedTemplate = kafkaFailedTemplate;
         this.notificationService = notificationService;
+        this.deadLetterQueueService = deadLetterQueueService;
     }
 
     @Transactional
@@ -345,32 +353,77 @@ public class BookingService {
             throw new RuntimeException("Failed to verify payment: " + e.getMessage(), e);
         }
     }
-
-    private void sendBookingSuccessEvent(Booking confirmedBooking) {
+    
+    /**
+     * Send booking success event with retry mechanism
+     * Retries 3 times with exponential backoff (1s, 2s, 4s)
+     * If all retries fail, stores in Dead Letter Queue
+     */
+    @Async("bookingEventExecutor")
+    @Retryable(
+        retryFor = {Exception.class},
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public void sendBookingSuccessEvent(Booking confirmedBooking) {
         BookingSuccessEvent bookingSuccessEvent = new BookingSuccessEvent(
                 confirmedBooking.getId(),
                 confirmedBooking.getUserId(),
                 confirmedBooking.getShowId(),
                 confirmedBooking.getTotalAmount()
         );
-        try{
+
+        try {
+            // Try Kafka first
             kafkaSuccessTemplate.send("booking_success", bookingSuccessEvent);
-            log.info("Sent booking success event for booking {}", confirmedBooking.getId());
+            log.info("Sent booking success event to Kafka for booking {}", confirmedBooking.getId());
+
         } catch (Exception e) {
-            log.error("Failed to send booking success event to Kafka for booking {}: {}", confirmedBooking.getId(), e.getMessage(), e);
-            log.info("[FallBack] : Sending booking success event to notification service through REST for booking {}", confirmedBooking.getId());
-            try {
-                notificationService.sendBookingSuccessEvent(bookingSuccessEvent);
-            } catch (Exception ex) {
-                log.error("Failed to send booking success event to notification service  for booking {}: {}", confirmedBooking.getId(), ex.getMessage(), ex);
-                throw new RuntimeException(ex);
-            }
+            log.error("Failed to send booking success event to Kafka for booking {}: {}",
+                    confirmedBooking.getId(), e.getMessage());
 
+            // Try REST fallback
+            log.info("[FallBack] : Attempting REST fallback for booking success event, booking {}",
+                    confirmedBooking.getId());
+            notificationService.sendBookingSuccessEvent(bookingSuccessEvent);
+            log.info("Successfully sent booking success event via REST fallback for booking {}",
+                    confirmedBooking.getId());
         }
-
     }
 
-    private void sendBookingFailedEvent(Booking failedBooking, String reason) {
+    /**
+     * Recovery method called when all retry attempts are exhausted
+     * Stores the failed event in Dead Letter Queue for manual processing
+     */
+    @Recover
+    public void recoverBookingSuccessEvent(Exception e, Booking confirmedBooking) {
+        log.error("All retry attempts exhausted for booking success event, booking {}: {}",
+                confirmedBooking.getId(), e.getMessage());
+
+        // Store in DLQ for manual retry
+        deadLetterQueueService.storeFailedSuccessEvent(
+                confirmedBooking.getId(),
+                confirmedBooking.getUserId(),
+                confirmedBooking.getShowId(),
+                confirmedBooking.getTotalAmount(),
+                e.getMessage()
+        );
+
+        log.warn("Booking success event stored in DLQ for booking {}", confirmedBooking.getId());
+    }
+    
+    /**
+     * Send booking failed event with retry mechanism
+     * Retries 3 times with exponential backoff (1s, 2s, 4s)
+     * If all retries fail, stores in Dead Letter Queue
+     */
+    @Async("bookingEventExecutor")
+    @Retryable(
+        retryFor = {Exception.class},
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public void sendBookingFailedEvent(Booking failedBooking, String reason) {
         BookingFailedEvent bookingFailedEvent = new BookingFailedEvent(
                 failedBooking.getId(),
                 failedBooking.getUserId(),
@@ -378,19 +431,45 @@ public class BookingService {
                 failedBooking.getTotalAmount(),
                 reason
         );
-        try{
+
+        try {
+            // Try Kafka first
             kafkaFailedTemplate.send("booking_failed", bookingFailedEvent);
-            log.info("Sent booking failed event for booking {}", failedBooking.getId());
+            log.info("Sent booking failed event to Kafka for booking {}", failedBooking.getId());
+
         } catch (Exception e) {
-            log.error("Failed to send booking failed event to Kafka for booking {}: {}", failedBooking.getId(), e.getMessage(), e);
-            log.info("[FallBack] : Sending booking failed event to notification service through REST for booking {}", failedBooking.getId());
-            try {
-                notificationService.sendBookingFailedEvent(bookingFailedEvent);
-            } catch (Exception ex) {
-                log.error("Failed to send booking failed event to notification service for booking {}: {}", failedBooking.getId(), ex.getMessage(), ex);
-                throw new RuntimeException(ex);
-            }
+            log.error("Failed to send booking failed event to Kafka for booking {}: {}",
+                    failedBooking.getId(), e.getMessage());
+
+            // Try REST fallback
+            log.info("[FallBack] : Attempting REST fallback for booking failed event, booking {}",
+                    failedBooking.getId());
+            notificationService.sendBookingFailedEvent(bookingFailedEvent);
+            log.info("Successfully sent booking failed event via REST fallback for booking {}",
+                    failedBooking.getId());
         }
+    }
+
+    /**
+     * Recovery method called when all retry attempts are exhausted
+     * Stores the failed event in Dead Letter Queue for manual processing
+     */
+    @Recover
+    public void recoverBookingFailedEvent(Exception e, Booking failedBooking, String reason) {
+        log.error("All retry attempts exhausted for booking failed event, booking {}: {}",
+                failedBooking.getId(), e.getMessage());
+
+        // Store in DLQ for manual retry
+        deadLetterQueueService.storeFailedFailureEvent(
+                failedBooking.getId(),
+                failedBooking.getUserId(),
+                failedBooking.getShowId(),
+                failedBooking.getTotalAmount(),
+                reason,
+                e.getMessage()
+        );
+
+        log.warn("Booking failed event stored in DLQ for booking {}", failedBooking.getId());
     }
 
     public List<SeatDetailsResponse> getSeatDetailsByBookingId(Long bookingId) {
