@@ -21,6 +21,7 @@ public class HeaderPropagationInterceptor implements ClientHttpRequestIntercepto
         if (attributes != null) {
             String userId = attributes.getRequest().getHeader("X-User-Id");
             String userRoles = attributes.getRequest().getHeader("X-User-Roles");
+            String username = attributes.getRequest().getHeader("X-User-Name");
 
             // Fix: Only append SERVICE_ACCOUNT if userRoles is not null
             if (userRoles != null) {
@@ -33,6 +34,12 @@ public class HeaderPropagationInterceptor implements ClientHttpRequestIntercepto
                 request.getHeaders().set("X-User-Id", userId);  // Use set() instead of add() to avoid duplicates
             } else {
                 log.warn("HeaderPropagationInterceptor - X-User-Id is null, not adding to outgoing request");
+            }
+
+            if (username != null) {
+                request.getHeaders().set("X-User-Name", username);  // Use set() instead of add() to avoid duplicates
+            } else {
+                log.warn("HeaderPropagationInterceptor - X-User-Name is null, not adding to outgoing request");
             }
 
             if (userRoles != null) {
