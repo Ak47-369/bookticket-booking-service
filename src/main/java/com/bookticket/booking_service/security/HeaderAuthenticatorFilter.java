@@ -20,10 +20,8 @@ public class HeaderAuthenticatorFilter  extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String id = request.getHeader("X-User-Id");
-        // TODO - Add X-User-Name in API Gateway First
-//        String username = request.getHeader("X-User-Name");
+        String username = request.getHeader("X-User-Name");
         String roles = request.getHeader("X-User-Roles");
-        String username = "user"; // Hardcoding for now
 
         if (id != null && username != null && roles != null) {
             try {
