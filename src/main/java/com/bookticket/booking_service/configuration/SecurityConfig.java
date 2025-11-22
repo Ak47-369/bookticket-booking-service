@@ -29,6 +29,8 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .authorizeHttpRequests(requests -> requests
+                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("v3/api-docs/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(headerAuthenticatorFilter(), UsernamePasswordAuthenticationFilter.class);
