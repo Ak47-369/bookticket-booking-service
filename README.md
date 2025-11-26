@@ -34,7 +34,10 @@ The booking process is a classic example of a **Saga pattern**, orchestrated by 
 
 ## API Endpoints
 
-The service's primary endpoints are exposed through the API Gateway:
+The service's endpoints are exposed through the API Gateway and are secured, requiring a valid JWT.
 
--   `POST /api/v1/bookings`: Creates a new booking and initiates the payment process.
--   `GET /api/v1/bookings/{id}`: Fetches the details of a specific booking.
+-   `POST /api/v1/bookings`: The primary endpoint to create a new booking. The request body should contain the `showId` and a list of `seatIds`. This initiates the seat-locking and payment-creation process.
+-   `GET /api/v1/bookings/{bookingId}/verify-payment`: Poll the payment status from Payment Service, and update the booking status accordingly.
+<!-- -   `GET /api/v1/bookings/verify`: The endpoint the user is redirected back to after completing the payment flow on Stripe. It takes `bookingId` and `sessionId` as query parameters to verify and finalize the booking. -->
+-   `GET /api/v1/bookings/{id}`: Fetches the complete details of a specific booking by its ID.
+-   `GET /api/v1/bookings/{id}/seats`: Fetches the specific seat details (number, type, price) associated with a particular booking.
